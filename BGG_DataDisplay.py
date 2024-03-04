@@ -40,7 +40,7 @@ def load_csv_data(file_name):
     min_score = min(float(row[headers.index("Player Count Score (unadjusted)")]) for row in data[1:])
     max_score = max(float(row[headers.index("Player Count Score (unadjusted)")]) for row in data[1:])
 
-    # Update the "Player Count Score", "Playable", and "Score\nFactor" values
+    # Update the "Player Count Score", "Playable", and "Score Factor" values
     for row in data[1:]:
         unadjusted_score = float(row[headers.index("Player Count Score (unadjusted)")])
 

@@ -91,6 +91,79 @@ def fetch_games_owned(session, username, page_number):
         }
 
     return games_owned
+
+def fetch_games_owned_api(session,username):
+    
+    #initialize variables
+    games_owned = {}        
+    owned = 'Owned'
+    
+    game_title = None
+    game_id = None
+    avg_rating = None
+    num_voters = None
+    weight = None
+    weight_votes = None
+    
+    base_url = f"https://boardgamegeek.com/xmlapi2/collection?username={username}&own=1&stats=1&subtype="    
+    types =(["boardgame", "boardgameexpansion"])
+    
+    for type in types:
+        
+        # print(f"Games Owned has {len(games_owned)}")
+          
+        if type == "boardgame":
+            game_type = "Base Game"
+        else:
+            game_type = "Expansion"
+            
+        
+        url = base_url + type
+        retries = 0
+        # print(url)
+        while True:
+            response = session.get(url)
+            time.sleep(1.5)
+
+            # check if response from API is a success
+            if response.status_code != 200:
+                retries += 1
+                print(f"Reponse from API Status Code {response.status_code}. Retrying... ({retries})")
+                if retries >= 50:
+                    input("Uh oh... something went wrong")
+                    raise Exception("50 retries reached. Stopping.")
+                    
+                time.sleep(5)
+                continue
+
+            retries = 0
+            break
+        
+        
+        soup = BeautifulSoup(response.text, 'lxml-xml')
+        items = soup.find_all("item")
+       
+        #iterate through all the games in the collection
+        for item in items:
+    
+            game_id = item["objectid"]
+            game_title = item.find('name').text
+                        
+            avg_rating = float(item.stats.find('average')['value'])
+            num_voters = int(item.stats.find('usersrated')['value'])            
+            
+            games_owned[game_id] = {
+            'Game Title': game_title,
+            'Type': game_type,
+            'Game ID': game_id,
+            'Average Rating': avg_rating,
+            'Number of Voters': num_voters,
+            'Weight': weight,
+            'Weight Votes' : weight_votes,
+            'Owned': owned
+            }
+        
+    return games_owned
   
 def merge_games_and_update_owned(games, games_owned):
     
@@ -101,45 +174,6 @@ def merge_games_and_update_owned(games, games_owned):
             game_owned['Owned'] = 'Owned'
             games[game_id] = game_owned
     return games
-
-    fieldnames = list(games.values())[0].keys()
-
-    if player_count_data_dict is not None:
-        fieldnames.update(['Num Players', 'Best', 'Recommended', 'Not Recommended'])
-
-    with open(file_name, 'w', newline='', encoding='utf-8') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-
-        for game_id, game in games.items():
-            if player_count_data_dict is not None:
-                player_count_data = player_count_data_dict.get(game_id, [])
-
-                for data in player_count_data:
-                    row_data = game.copy()
-                    row_data.update(data)
-                    writer.writerow(row_data)
-
-                if not player_count_data:
-                    writer.writerow(game)
-            else:
-                writer.writerow(game)
-
-    output_data = []
-
-    for game_id, game in games.items():
-        player_count_data = player_count_data_dict.get(game_id, [])
-
-        for data in player_count_data:
-            row_data = game.copy()
-            row_data.update(data)
-            output_data.append(row_data)
-
-        if not player_count_data:
-            output_data.append(game)
-
-    with open(file_name, 'w', encoding='utf-8') as jsonfile:
-        json.dump(output_data, jsonfile, ensure_ascii=False, indent=4)
 
 def write_merged_data_to_csv(games, player_count_data_dict, csv_filename):
     # Merge player_count_data_dict with games
@@ -193,9 +227,10 @@ def update_boardgame_data(games, batch_size=100, progress_bar=None):
             response = requests.get(url)
             time.sleep(1.5)
 
-            error_codes = [400, 401, 403, 404, 408, 429, 500, 503]
+            # error_codes = [400, 401, 403, 404, 408, 429, 500, 503]
 
-            if response.status_code in error_codes:
+            # check if response from API is a success
+            if response.status_code != 200:
                 retries += 1
                 print(f"Error {response.status_code}. Retrying... ({retries})")
                 if retries >= 50:
@@ -315,58 +350,16 @@ def main():
     games_owned = {}
     current_page = 1
     
-    print("\n")
-    
-    # Code to fetch owned games
-    if debug:
-        games_owned_count = 0
-
-        while True:
-            print(f"Fetching owned games of BBG username {username}: page {current_page}")
-            new_games_owned = fetch_games_owned(session, username, current_page)
-
-            for game in new_games_owned.values():
-                games_owned[game["Game ID"]] = game
-                games_owned_count += 1
-
-                if games_owned_count == 10:
-                    break
-
-            if games_owned_count == 10:
-                break
-
-            if len(new_games_owned) < 50:
-                break
-            else:
-                current_page += 1
-    else:
-        while True:
-            print(f"Fetching owned games of BBG username {username}: page {current_page}")
-            new_games_owned = fetch_games_owned(session, username, current_page)
-
-            for game in new_games_owned.values():
-                games_owned[game["Game ID"]] = game
-
-            if len(new_games_owned) < 50:
-                break
-            else:
-                current_page += 1
+    print("\n")       
+                  
+    games_owned = fetch_games_owned_api(session,username)
 
     print(f"Total owned games fetched: {len(games_owned)}")
 
     games = merge_games_and_update_owned(games, games_owned)
        
     print(f"Total games after merge: {len(games)}")
-    
-    # Create a new dictionary for player count data
-    player_count_data_dict = {}
-
-    # Fetch weights, poll IDs, and player count data for each game
-    missing_weights = []
-    missing_weight_votes = []
-    missing_poll_ids = []
-    missing_player_data = []
-    
+       
     print("\n")
     
     with tqdm(total=len(games),smoothing=0,desc="Updating game data") as progress_bar:
