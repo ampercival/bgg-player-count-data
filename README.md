@@ -1,4 +1,5 @@
 BGG Player Count Data Scraper
+
 Overview
 This tool is designed to scrape and process board game data from BoardGameGeek (BGG), focusing on collecting information such as game ownership, ratings, weights, and player count recommendations. It aims to assist board game enthusiasts and researchers in gathering detailed insights into various board games listed on BGG.
 
