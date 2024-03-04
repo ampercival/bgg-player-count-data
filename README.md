@@ -22,6 +22,7 @@ Clone the repository or download the script.
 Install required dependencies: pip install -r requirements.txt.
 Run the script with Python 3.x: python BGG_PlayerCountData.py.
 Follow on-screen prompts or modify the script to customize your data collection criteria.
+
 Note
 This tool is intended for educational and personal use. Please ensure you comply with BoardGameGeek's terms of service when using this script. Avoid making excessive requests to BGG's servers to prevent strain on their resources.
 
