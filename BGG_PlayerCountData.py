@@ -5,7 +5,8 @@ import requests
 import csv
 from tqdm.auto import tqdm
 import time
-import argparse 
+import argparse
+import json
 
 # Below are the imports required for the script to function properly:
 # - `re`: module for using regular expressions.
@@ -22,8 +23,9 @@ def get_args():
     # Step 3: Adding command-line arguments
     parser.add_argument("-u", "--username", default="Percy0715", help="BoardGameGeek username (default: Percy0715)")
     parser.add_argument("-f", "--fetch", type=int, default=1000, help="Number of games to fetch (default: 1000)")
-    parser.add_argument("-o", "--output", default="PlayerCountDataList.csv", help="Output CSV filename (default: PlayerCountDataList.csv)")
+    parser.add_argument("-o", "--output", default="PlayerCountDataList", help="Output filename (default: PlayerCountDataList.csv)")
     parser.add_argument("-b", "--batch_size", type=int, default=500, help="Batch size for processing games in batches from API call (default: 500)")    
+    parser.add_argument("-t", "--output_type", choices=['csv', 'json'], default='csv', help="Output format: 'csv' or 'json' (default: csv)")
     
     return parser.parse_args()
 
@@ -221,7 +223,6 @@ def merge_games_and_update_owned(games, games_owned):
     # Return the updated games dictionary with merged ownership information.
     return games
 
-
 def write_merged_data_to_csv(games, player_count_data_dict, csv_filename):
     """
     Writes the merged game and player count data to a CSV file.
@@ -271,6 +272,63 @@ def write_merged_data_to_csv(games, player_count_data_dict, csv_filename):
             writer.writeheader()  # Write the header row.
             for row in merged_data:
                 writer.writerow(row)  # Write each row of data.
+
+def write_merged_data_to_json(games, player_count_data_dict, json_filename):
+    """
+    Writes game data and player count recommendations to a JSON file.
+
+    This function creates a JSON file where each game is represented once with its details,
+    and player count recommendations are nested within each game entry. This structure minimizes
+    duplication of game details across different player counts.
+
+    Args:
+        games (dict): A dictionary of game details, where each key is a game ID and each value is another
+                      dictionary containing game details such as title, year, ratings, etc.
+        player_count_data_dict (dict): A dictionary where each key is a game ID and each value is a
+                                        dictionary with player counts as keys and recommendation details as values.
+        json_filename (str): The name of the JSON file to write the data to.
+    """
+    data_to_write = []  # Initialize the list to hold each game's data for JSON output.
+    
+    # Iterate through each game ID and its player count data in the player count dictionary.
+    for game_id, player_data in player_count_data_dict.items():
+        if game_id in games:
+            # Prepare the game's static details.
+            game_info = {
+                'Game Title': games[game_id]['Game Title'],
+                'Game ID': game_id,
+                'Year': games[game_id].get('Year', 'N/A'),
+                'Average Rating': games[game_id]['Average Rating'],
+                'Number of Voters': games[game_id]['Number of Voters'],
+                'Weight': games[game_id].get('Weight', 'N/A'),
+                'Weight Votes': games[game_id].get('Weight Votes', 'N/A'),
+                'Owned': games[game_id]['Owned'],
+                'Type': games[game_id]['Type'],
+                'Player Counts': {}
+            }
+            # Add player count recommendations as a nested structure within each game entry.
+            for count, details in player_data.items():
+                # Convert count to an integer, if possible, for the 'Player Count' field
+                try:
+                    player_count_int = int(count)
+                except ValueError:
+                    player_count_int = count  # Keep as string if not convertible
+                
+                game_info['Player Counts'][count] = {
+                    'Player Count': player_count_int,  # Add the integer player count here
+                    'Best %': details['Best %'],
+                    'Best Votes': details['Best Votes'],
+                    'Recommended %': details['Recommended %'],
+                    'Recommended Votes': details['Recommended Votes'],
+                    'Not Recommended %': details['Not Recommended %'],
+                    'Not Recommended Votes': details['Not Recommended Votes'],
+                    'Vote Count': details['Vote Count']
+                }
+            data_to_write.append(game_info)  # Add the game's complete information to the list.
+
+    # Write the list of games with their nested player count data to a JSON file.
+    with open(json_filename, 'w', encoding='utf-8') as file:
+        json.dump(data_to_write, file, ensure_ascii=False, indent=4)
 
 
 def update_boardgame_data(games, batch_size=100, progress_bar=None):
@@ -370,7 +428,7 @@ def update_boardgame_data(games, batch_size=100, progress_bar=None):
 
     return games, player_count_data_dict  # Return the updated games dictionary and the new player count data dictionary.
 
-def main(username, games_to_fetch, output_csv_filename, batch_size):
+def main(username, games_to_fetch, output_filename, batch_size, output_type):
     """
     The main function of the script, responsible for orchestrating the entire data collection,
     processing, and CSV writing process.
@@ -429,13 +487,21 @@ def main(username, games_to_fetch, output_csv_filename, batch_size):
     print(f"Total games in gamesid {len(games)}")
     print(f"Total line in playercount: {len(player_count_data_dict)}")
 
-    # Write the merged and updated data to a CSV file.
-    write_merged_data_to_csv(games, player_count_data_dict, output_csv_filename)
+    # Append the proper file extension based on the output type
+    if not output_filename.endswith(f'.{output_type}'):
+        output_filename_with_extension = f"{output_filename}.{output_type}"
+    else:
+        output_filename_with_extension = output_filename
 
-    print("Success!")
+    if output_type == 'csv':
+        write_merged_data_to_csv(games, player_count_data_dict, output_filename_with_extension)
+    elif output_type == 'json':
+        write_merged_data_to_json(games, player_count_data_dict, output_filename_with_extension)
+
+    print(f"Success! Data written in {output_type.upper()} format to {output_filename_with_extension}.")
 
 if __name__ == "__main__":
     args = get_args()  #Parse command-line arguments.
     
     # Pass the parsed arguments to your main function.
-    main(args.username, args.fetch, args.output, args.batch_size)
+    main(args.username, args.fetch, args.output, args.batch_size, args.output_type)
