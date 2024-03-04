@@ -1,0 +1,460 @@
+import re
+from bs4 import BeautifulSoup
+from fake_useragent import UserAgent
+import requests
+import csv
+from tqdm.auto import tqdm
+import time
+import json
+import os
+
+def create_session():
+    ua = UserAgent(browsers=['chrome', 'edge', 'firefox', 'safari'])
+    headers = {'User-Agent': ua.random}
+
+    session = requests.Session()
+    session.headers.update(headers)
+    return session
+
+def fetch_games(session, username, page_number, progress_bar=None):
+    url = f"https://boardgamegeek.com/search/boardgame/page/{page_number}?sort=avgrating&advsearch=1&q=&include%5Bdesignerid%5D=&include%5Bpublisherid%5D=&geekitemname=&range%5Byearpublished%5D%5Bmin%5D=&range%5Byearpublished%5D%5Bmax%5D=&range%5Bminage%5D%5Bmax%5D=&range%5Bnumvoters%5D%5Bmin%5D=100&range%5Bnumweights%5D%5Bmin%5D=&range%5Bminplayers%5D%5Bmax%5D=&range%5Bmaxplayers%5D%5Bmin%5D=&range%5Bleastplaytime%5D%5Bmin%5D=&range%5Bplaytime%5D%5Bmax%5D=&floatrange%5Bavgrating%5D%5Bmin%5D=&floatrange%5Bavgrating%5D%5Bmax%5D=&floatrange%5Bavgweight%5D%5Bmin%5D=&floatrange%5Bavgweight%5D%5Bmax%5D=&colfiltertype=&searchuser={username}&playerrangetype=normal&B1=Submit&sortdir=desc"
+    response = session.get(url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    table = soup.find('table', {'class': 'collection_table'})
+
+    games = {}
+
+    for row in table.find_all('tr', {'id': re.compile(r'^row_')}):
+        game_title_element = row.find_all('td')[2]
+        game_title = game_title_element.a.text.strip()
+        game_id = re.search(r'/boardgame(?:expansion)?/(\d+)', game_title_element.a['href']).group(1)
+        
+        if "boardgameexpansion" in game_title_element.a['href']:
+            game_type = "Expansion"
+        else:
+            game_type = "Base Game"
+
+        avg_rating = float(row.find_all('td')[4].text.strip())
+        num_voters = int(row.find_all('td')[5].text.strip())
+
+        weight = None
+        weight_votes = None
+        poll_id = None
+        owned = 'Not Owned'
+        
+        games[game_id] = {
+            'Game Title': game_title,
+            'Type': game_type,
+            'Game ID': game_id,
+            'Average Rating': avg_rating,
+            'Number of Voters': num_voters,
+            'Weight': weight,
+            'Weight Votes' : weight_votes,
+            'Poll ID': poll_id,
+            'Owned': owned
+        }
+
+    return games
+
+def fetch_games_owned(session, username, page_number):
+    url = f"https://boardgamegeek.com/search/boardgame/page/{page_number}?sort=bggrating&advsearch=1&q=&include%5Bdesignerid%5D=&include%5Bpublisherid%5D=&geekitemname=&range%5Byearpublished%5D%5Bmin%5D=&range%5Byearpublished%5D%5Bmax%5D=&range%5Bminage%5D%5Bmax%5D=&range%5Bnumvoters%5D%5Bmin%5D=&range%5Bnumweights%5D%5Bmin%5D=&range%5Bminplayers%5D%5Bmax%5D=&range%5Bmaxplayers%5D%5Bmin%5D=&range%5Bleastplaytime%5D%5Bmin%5D=&range%5Bplaytime%5D%5Bmax%5D=&floatrange%5Bavgrating%5D%5Bmin%5D=&floatrange%5Bavgrating%5D%5Bmax%5D=&floatrange%5Bavgweight%5D%5Bmin%5D=&floatrange%5Bavgweight%5D%5Bmax%5D=&colfiltertype=owned&searchuser={username}&playerrangetype=normal&B1=Submit"
+    response = session.get(url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    table = soup.find('table', {'class': 'collection_table'})
+
+    games_owned = {}
+
+    for row in table.find_all('tr', {'id': re.compile(r'^row_')}):
+        game_title_element = row.find_all('td')[2]
+        game_title = game_title_element.a.text.strip()
+        game_id = re.search(r'/boardgame(?:expansion)?/(\d+)', game_title_element.a['href']).group(1)
+        
+        if "boardgameexpansion" in game_title_element.a['href']:
+            game_type = "Expansion"
+        else:
+            game_type = "Base Game"
+
+        avg_rating = float(row.find_all('td')[4].text.strip())
+        num_voters = int(row.find_all('td')[5].text.strip())
+
+        weight = None
+        weight_votes = None
+        poll_id = None
+        owned = 'Owned'
+        
+        games_owned[game_id] = {
+            'Game Title': game_title,
+            'Type': game_type,
+            'Game ID': game_id,
+            'Average Rating': avg_rating,
+            'Number of Voters': num_voters,
+            'Weight': weight,
+            'Weight Votes' : weight_votes,
+            'Poll ID': poll_id,
+            'Owned': owned
+        }
+
+    return games_owned
+
+def fetch_player_count_data(session, poll_id):
+    url = f"https://boardgamegeek.com/geekpoll.php?action=results&pollid={poll_id}"
+    response = session.get(url)
+
+    soup = BeautifulSoup(response.text, 'html.parser')
+    table = soup.find('table', {'class': 'pollresults'})
+
+    player_count_data = {}
+
+    if table:
+        rows = table.find_all('tr')
+        for row in rows:
+            columns = row.find_all('td')
+
+            if len(columns) == 5:
+                player_count = columns[0].text.strip()
+                if player_count.isdigit():
+                    player_count = int(player_count)
+                    best_data = re.search(r'(\d+\.\d+)%\s+\((\d+)\)', columns[1].text)
+                    recommended_data = re.search(r'(\d+\.\d+)%\s+\((\d+)\)', columns[2].text)
+                    not_recommended_data = re.search(r'(\d+\.\d+)%\s+\((\d+)\)', columns[3].text)
+                    vote_count = int(columns[4].text.strip())
+
+                    player_count_data[player_count] = {
+                        'Best %': float(best_data.group(1)),
+                        'Best Votes': int(best_data.group(2)),
+                        'Recommended %': float(recommended_data.group(1)),
+                        'Recommended Votes': int(recommended_data.group(2)),
+                        'Not Recommended %': float(not_recommended_data.group(1)),
+                        'Not Recommended Votes': int(not_recommended_data.group(2)),
+                        'Vote Count': vote_count
+                    }
+
+    return player_count_data
+
+def get_game_weight_and_pollid(game_id, existing_poll_id=None):
+    weight = None
+    poll_id = existing_poll_id
+    weight_votes = None
+
+    # Fetch weight
+    weight_url = f"https://boardgamegeek.com/boardgame/{game_id}"
+    weight_response = requests.get(weight_url)
+    weight_soup = BeautifulSoup(weight_response.content, "html.parser")
+
+    # Find the JSON object containing the weight value
+    json_text = re.search(r'boardgameweight":{"averageweight":([0-9]+(\.[0-9]+)?),"votes":"([0-9]+)"}', str(weight_soup))
+    
+    if json_text:
+        weight_json = json.loads(f'{{"averageweight": {json_text.group(1)}, "votes": "{json_text.group(3)}"}}')
+        # Extract the weight value
+        weight = weight_json['averageweight']
+        weight = round(weight, 2)        
+        weight_votes = weight_json['votes']    
+
+    # Fetch poll_id
+    if poll_id is None:
+        # print(f"GameID didn't have a pollid: {game_id}")
+        poll_id_url = f"https://boardgamegeek.com/geekitempoll.php?action=view&itempolltype=numplayers&objecttype=thing&objectid={game_id}"
+        poll_id_response = requests.get(poll_id_url)
+        poll_id_soup = BeautifulSoup(poll_id_response.content, "html.parser")
+        
+        poll_id_input = poll_id_soup.find('input', {'name': 'pollid'})
+        
+        if poll_id_input:
+            poll_id = poll_id_input['value']
+            
+    return weight, weight_votes, poll_id
+
+
+def load_games_from_library(file_name):
+    games_old = {}
+
+    if os.path.exists(file_name):
+        with open(file_name, 'r', encoding='utf-8') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                game_id = row['Game ID']
+                poll_id = row['Poll ID']
+                games_old[game_id] = {'Game ID': game_id, 'Poll ID': poll_id}
+    else:
+        print(f"Previous fetch in {file_name} not found. Will need to fetch all pollids.")
+
+    return games_old
+    
+def merge_games_and_update_owned(games, games_owned):
+    
+    for game_id, game_owned in games_owned.items():
+        if game_id in games:
+            games[game_id]['Owned'] = 'Owned'
+        else:
+            game_owned['Owned'] = 'Owned'
+            games[game_id] = game_owned
+    return games
+
+    fieldnames = list(games.values())[0].keys()
+
+    if player_count_data_dict is not None:
+        fieldnames.update(['Num Players', 'Best', 'Recommended', 'Not Recommended'])
+
+    with open(file_name, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for game_id, game in games.items():
+            if player_count_data_dict is not None:
+                player_count_data = player_count_data_dict.get(game_id, [])
+
+                for data in player_count_data:
+                    row_data = game.copy()
+                    row_data.update(data)
+                    writer.writerow(row_data)
+
+                if not player_count_data:
+                    writer.writerow(game)
+            else:
+                writer.writerow(game)
+
+    output_data = []
+
+    for game_id, game in games.items():
+        player_count_data = player_count_data_dict.get(game_id, [])
+
+        for data in player_count_data:
+            row_data = game.copy()
+            row_data.update(data)
+            output_data.append(row_data)
+
+        if not player_count_data:
+            output_data.append(game)
+
+    with open(file_name, 'w', encoding='utf-8') as jsonfile:
+        json.dump(output_data, jsonfile, ensure_ascii=False, indent=4)
+
+def write_merged_data_to_csv(games, player_count_data_dict, csv_filename):
+    # Merge player_count_data_dict with games
+    merged_data = []
+    
+    for game_id, player_count_data in player_count_data_dict.items():
+        if game_id in games:
+            for player_count, player_data in player_count_data.items():
+                row = {
+                    'Game Title': games[game_id]['Game Title'],
+                    'Game ID': game_id,
+                    'Average Rating': games[game_id]['Average Rating'],
+                    'Number of Voters': games[game_id]['Number of Voters'],
+                    'Weight': games[game_id]['Weight'],
+                    'Weight Votes': games[game_id]['Weight Votes'],
+                    'Poll ID': games[game_id]['Poll ID'],
+                    'Owned': games[game_id]['Owned'],
+                    'Type': games[game_id]['Type'],
+                    'Player Count': player_count,
+                    'Best %': player_data['Best %'],
+                    'Best Votes': player_data['Best Votes'],
+                    'Recommended %': player_data['Recommended %'],
+                    'Recommended Votes': player_data['Recommended Votes'],
+                    'Not Recommended %': player_data['Not Recommended %'],
+                    'Not Recommended Votes': player_data['Not Recommended Votes'],
+                    'Vote Count': player_data['Vote Count']
+                }
+                merged_data.append(row)
+
+    # Write the merged data to CSV
+    with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
+        fieldnames = list(merged_data[0].keys())
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in merged_data:
+            writer.writerow(row)
+
+def write_updated_poll_library(filename, games_old):
+
+    with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+        fieldnames = ['Game ID', 'Poll ID']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+        writer.writeheader()
+        for game_data in games_old.values():
+            writer.writerow(game_data)
+
+def main():
+    session = create_session()
+    
+    #parameters
+    games_to_fetch = 5000
+    input_pollid_filename = "PollIDLibrary.csv"
+    output_csv_filename = "PlayerCountDataList.csv"
+    username = "Percy0715"
+
+
+    fetched_games = 0
+    current_page = 1
+    games = {}
+    
+    debug = False
+    
+    if debug:
+        games_to_fetch = 10
+    
+    with tqdm(total=games_to_fetch, desc="Fetching games") as progress_bar:
+        while fetched_games < games_to_fetch:
+            page_games = fetch_games(session, username, current_page)
+            for game in page_games.values():
+                if fetched_games >= games_to_fetch:
+                    break
+                fetched_games += 1
+                games[game["Game ID"]] = game
+                progress_bar.update(1)
+            current_page += 1
+
+    
+    games_owned = {}
+    current_page = 1
+    
+    # Code to fetch owned games
+    if debug:
+        games_owned_count = 0
+
+        while True:
+            print(f"Fetching owned games of BBG username {username}: page {current_page}")
+            new_games_owned = fetch_games_owned(session, username, current_page)
+
+            for game in new_games_owned.values():
+                games_owned[game["Game ID"]] = game
+                games_owned_count += 1
+
+                if games_owned_count == 10:
+                    break
+
+            if games_owned_count == 10:
+                break
+
+            if len(new_games_owned) < 50:
+                break
+            else:
+                current_page += 1
+    else:
+        while True:
+            print(f"Fetching owned games of BBG username {username}: page {current_page}")
+            new_games_owned = fetch_games_owned(session, username, current_page)
+
+            for game in new_games_owned.values():
+                games_owned[game["Game ID"]] = game
+
+            if len(new_games_owned) < 50:
+                break
+            else:
+                current_page += 1
+
+    print(f"Total owned games fetched: {len(games_owned)}")
+
+    games = merge_games_and_update_owned(games, games_owned)
+    
+    print(f"Total games after merge: {len(games)}")
+    
+    print(f"Fetching old game data")
+    games_old = load_games_from_library(input_pollid_filename)
+      
+    print(f"There are {len(games_old)} games in the pollid library")
+    
+    games_with_pollid_count = 0
+   
+    print("Finding known pollIDs")
+    for game_id in games.keys():
+        if game_id in games_old.keys() and 'Poll ID' in games_old[game_id].keys():
+            games[game_id]['Poll ID'] = games_old[game_id]['Poll ID']
+            games_with_pollid_count += 1
+
+            
+    print(f"Found pollid for {games_with_pollid_count} out of {len(games)} games.")
+    
+    # Create a new dictionary for player count data
+    player_count_data_dict = {}
+
+    # Fetch weights, poll IDs, and player count data for each game
+    missing_weights = []
+    missing_weight_votes = []
+    missing_poll_ids = []
+    missing_player_data = []
+        
+    with tqdm(total=len(games), smoothing=0.05, desc="Fetching game weights, pollIDs, and player count data") as progress_bar:
+        for game in games.values():
+            game_id = game['Game ID']
+            poll_id = game['Poll ID']
+            weight, weight_votes, poll_id = get_game_weight_and_pollid(game_id, poll_id)
+            game['Weight'] = weight
+            game['Weight Votes'] = weight_votes
+            game['Poll ID'] = poll_id
+
+            if poll_id:
+                player_count_data = fetch_player_count_data(session, poll_id)
+                
+                if player_count_data:
+                    for player_count_item in player_count_data.items():
+                        player_count = player_count_item[0]
+                        player_count_stats = player_count_item[1]
+                        
+                        if game_id not in player_count_data_dict:
+                            player_count_data_dict[game_id] = {}
+                        
+                        player_count_data_dict[game_id][player_count] = player_count_stats
+
+            progress_bar.update(1)
+                          
+        if weight is None:
+            missing_weights.append(game_id)
+            
+        if weight_votes is None:
+            missing_weight_votes.append(game_id)
+
+        if poll_id is None:
+            missing_poll_ids.append(game_id)
+            
+        if player_count_data is None:
+            missing_player_data.append(game_id)
+            
+
+    # Check if there are any errors
+    has_errors = False
+    error_msgs = []
+
+    if len(missing_weights) > 0:
+        has_errors = True
+        error_msgs.append(f"Games with missing weights: {', '.join(missing_weights)}")
+        
+    if len(missing_weight_votes) > 0:
+        has_errors = True
+        error_msgs.append(f"Games with missing weight votes: {', '.join(missing_weights)}")
+        
+    if len(missing_poll_ids) > 0:
+        has_errors = True
+        error_msgs.append(f"Games with missing poll IDs: {', '.join(missing_poll_ids)}")
+        
+    if len(missing_player_data) > 0:
+        has_errors = True
+        error_msgs.append(f"Games with missing player data: {', '.join(missing_player_data)}")
+        
+    # Print error summary
+    if has_errors:
+        print("Errors Detected:")
+        print("\n".join(error_msgs))
+    else:
+        print("Success!")
+    
+    #update pollid file with new data
+    
+    new_pollid_count = 0
+    for game_id, game_data in games.items():
+        if game_id not in games_old:
+            games_old[game_id] = {
+                'Game ID': game_id,
+                'Poll ID': game_data['Poll ID']
+            }
+            new_pollid_count += 1
+        
+    print(f"Updated PollID Library with {new_pollid_count} games")
+    write_merged_data_to_csv(games, player_count_data_dict, "PlayerCountDataList_new.csv")
+    write_updated_poll_library(input_pollid_filename, games_old)
+
+if __name__ == "__main__":
+    main()
+
