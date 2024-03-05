@@ -192,144 +192,6 @@ def fetch_games_owned_api(session, username):
             }
         
     return games_owned  # Return the dictionary of owned games.
-  
-def merge_games_and_update_owned(games, games_owned):
-    """
-    Merges two dictionaries of games, updating the ownership status based on the games_owned data.
-
-    This function iterates through the games_owned dictionary and updates the ownership status
-    of the corresponding games in the games dictionary. If a game from the games_owned dictionary
-    does not exist in the games dictionary, it will be added to it. This ensures that the final
-    games dictionary contains a comprehensive list of games with accurate ownership information.
-
-    Args:
-        games (dict): A dictionary of games with various details, potentially without ownership information.
-        games_owned (dict): A dictionary of games owned by the user, used to update the 'Owned' status in the games dictionary.
-
-    Returns:
-        dict: The updated games dictionary with ownership information correctly merged from games_owned.
-    """
-    # Iterate through each game ID and its details in the games_owned dictionary.
-    for game_id, game_owned in games_owned.items():
-        # Check if the current game ID from games_owned exists in the games dictionary.
-        if game_id in games:
-            # If it exists, update the 'Owned' status to 'Owned'.
-            games[game_id]['Owned'] = 'Owned'
-        else:
-            # If the game ID does not exist in the games dictionary, add it along with its details from games_owned.
-            game_owned['Owned'] = 'Owned'  # Ensure the 'Owned' status is explicitly set to 'Owned'.
-            games[game_id] = game_owned  # Add the game to the games dictionary.
-
-    # Return the updated games dictionary with merged ownership information.
-    return games
-
-def write_merged_data_to_csv(games, player_count_data_dict, csv_filename):
-    """
-    Writes the merged game and player count data to a CSV file.
-
-    This function takes the merged data from the games dictionary and the player count data dictionary,
-    then writes it into a CSV file with detailed information for each game. This includes game title,
-    ID, year, average rating, number of voters, weight, weight votes, ownership status, type, player count,
-    and various voting percentages and counts related to player count recommendations.
-
-    Args:
-        games (dict): A dictionary containing game details.
-        player_count_data_dict (dict): A dictionary containing player count recommendation data for each game.
-        csv_filename (str): The filename of the CSV file to write the data to.
-    """
-    merged_data = []  # Initialize a list to hold the merged data for CSV writing.
-
-    # Iterate through the player count data dictionary to merge it with the games dictionary.
-    for game_id, player_count_data in player_count_data_dict.items():
-        if game_id in games:
-            for player_count, player_data in player_count_data.items():
-                row = {
-                    'Game Title': games[game_id]['Game Title'],
-                    'Game ID': game_id,
-                    'Year': games[game_id].get('Year', 'N/A'),  # Use 'N/A' if 'Year' is not available.
-                    'Average Rating': games[game_id]['Average Rating'],
-                    'Number of Voters': games[game_id]['Number of Voters'],
-                    'Weight': games[game_id].get('Weight', 'N/A'),  # Use 'N/A' if 'Weight' is not available.
-                    'Weight Votes': games[game_id].get('Weight Votes', 'N/A'),  # Use 'N/A' if 'Weight Votes' is not available.
-                    'Owned': games[game_id]['Owned'],
-                    'Type': games[game_id]['Type'],
-                    'Player Count': player_count,
-                    'Best %': player_data['Best %'],
-                    'Best Votes': player_data['Best Votes'],
-                    'Recommended %': player_data['Recommended %'],
-                    'Recommended Votes': player_data['Recommended Votes'],
-                    'Not Recommended %': player_data['Not Recommended %'],
-                    'Not Recommended Votes': player_data['Not Recommended Votes'],
-                    'Vote Count': player_data['Vote Count']
-                }
-                merged_data.append(row)  # Add the row to the merged_data list.
-
-    # Write the merged data to a CSV file.
-    with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
-        if merged_data:  # Ensure there is data to write.
-            fieldnames = list(merged_data[0].keys())  # Extract the field names from the first row.
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()  # Write the header row.
-            for row in merged_data:
-                writer.writerow(row)  # Write each row of data.
-
-def write_merged_data_to_json(games, player_count_data_dict, json_filename):
-    """
-    Writes game data and player count recommendations to a JSON file.
-
-    This function creates a JSON file where each game is represented once with its details,
-    and player count recommendations are nested within each game entry. This structure minimizes
-    duplication of game details across different player counts.
-
-    Args:
-        games (dict): A dictionary of game details, where each key is a game ID and each value is another
-                      dictionary containing game details such as title, year, ratings, etc.
-        player_count_data_dict (dict): A dictionary where each key is a game ID and each value is a
-                                        dictionary with player counts as keys and recommendation details as values.
-        json_filename (str): The name of the JSON file to write the data to.
-    """
-    data_to_write = []  # Initialize the list to hold each game's data for JSON output.
-    
-    # Iterate through each game ID and its player count data in the player count dictionary.
-    for game_id, player_data in player_count_data_dict.items():
-        if game_id in games:
-            # Prepare the game's static details.
-            game_info = {
-                'Game Title': games[game_id]['Game Title'],
-                'Game ID': game_id,
-                'Year': games[game_id].get('Year', 'N/A'),
-                'Average Rating': games[game_id]['Average Rating'],
-                'Number of Voters': games[game_id]['Number of Voters'],
-                'Weight': games[game_id].get('Weight', 'N/A'),
-                'Weight Votes': games[game_id].get('Weight Votes', 'N/A'),
-                'Owned': games[game_id]['Owned'],
-                'Type': games[game_id]['Type'],
-                'Player Counts': {}
-            }
-            # Add player count recommendations as a nested structure within each game entry.
-            for count, details in player_data.items():
-                # Convert count to an integer, if possible, for the 'Player Count' field
-                try:
-                    player_count_int = int(count)
-                except ValueError:
-                    player_count_int = count  # Keep as string if not convertible
-                
-                game_info['Player Counts'][count] = {
-                    'Player Count': player_count_int,  # Add the integer player count here
-                    'Best %': details['Best %'],
-                    'Best Votes': details['Best Votes'],
-                    'Recommended %': details['Recommended %'],
-                    'Recommended Votes': details['Recommended Votes'],
-                    'Not Recommended %': details['Not Recommended %'],
-                    'Not Recommended Votes': details['Not Recommended Votes'],
-                    'Vote Count': details['Vote Count']
-                }
-            data_to_write.append(game_info)  # Add the game's complete information to the list.
-
-    # Write the list of games with their nested player count data to a JSON file.
-    with open(json_filename, 'w', encoding='utf-8') as file:
-        json.dump(data_to_write, file, ensure_ascii=False, indent=4)
-
 
 def update_boardgame_data(games, batch_size=100, progress_bar=None):
     """
@@ -387,6 +249,9 @@ def update_boardgame_data(games, batch_size=100, progress_bar=None):
             games[game_id]['Weight'] = average_weight  # Update the game's weight.
             games[game_id]['Weight Votes'] = num_weights  # Update the number of weight votes.
 
+            #copy all the static information to 
+            player_count_data_dict[game_id] = games[game_id]
+            
             # Extract and process player count recommendation data.
             suggested_numplayers = item.find("poll", {"name": "suggested_numplayers"})
             player_count_data = {}
@@ -412,6 +277,9 @@ def update_boardgame_data(games, batch_size=100, progress_bar=None):
                     not_recommended_percentage = round((not_recommended_votes / vote_count) * 100, 1) if vote_count else 0
 
                     player_count_data[numplayers] = {
+                        'Number of Players' : numplayers,
+                        'Score Factor' : None,  # Placeholder for score factor; will be added later.
+                        'Playable' : None,  # Placeholder for whether the game is playable at this count; will be added later.
                         'Best %': best_percentage,
                         'Best Votes': best_votes,
                         'Recommended %': recommended_percentage,
@@ -420,13 +288,152 @@ def update_boardgame_data(games, batch_size=100, progress_bar=None):
                         'Not Recommended Votes': not_recommended_votes,
                         'Vote Count': vote_count
                     }
-
-            player_count_data_dict[game_id] = player_count_data  # Add the player count data for the current game.
-
+                    
+                    player_count_data_dict[game_id][numplayers] = player_count_data[numplayers]
+                               
             if progress_bar:
                 progress_bar.update(1)  # Update the progress bar if provided.
 
-    return games, player_count_data_dict  # Return the updated games dictionary and the new player count data dictionary.
+    player_count_data_dict = add_score_factors(player_count_data_dict)  # Add score factors to the player count data
+    
+    return player_count_data_dict  # Return the updated games dictionary and the new player count data dictionary.
+
+def merge_games_and_update_owned(games, games_owned):
+    """
+    Merges two dictionaries of games, updating the ownership status based on the games_owned data.
+
+    This function iterates through the games_owned dictionary and updates the ownership status
+    of the corresponding games in the games dictionary. If a game from the games_owned dictionary
+    does not exist in the games dictionary, it will be added to it. This ensures that the final
+    games dictionary contains a comprehensive list of games with accurate ownership information.
+
+    Args:
+        games (dict): A dictionary of games with various details, potentially without ownership information.
+        games_owned (dict): A dictionary of games owned by the user, used to update the 'Owned' status in the games dictionary.
+
+    Returns:
+        dict: The updated games dictionary with ownership information correctly merged from games_owned.
+    """
+    # Iterate through each game ID and its details in the games_owned dictionary.
+    for game_id, game_owned in games_owned.items():
+        # Check if the current game ID from games_owned exists in the games dictionary.
+        if game_id in games:
+            # If it exists, update the 'Owned' status to 'Owned'.
+            games[game_id]['Owned'] = 'Owned'
+        else:
+            # If the game ID does not exist in the games dictionary, add it along with its details from games_owned.
+            game_owned['Owned'] = 'Owned'  # Ensure the 'Owned' status is explicitly set to 'Owned'.
+            games[game_id] = game_owned  # Add the game to the games dictionary.
+
+    # Return the updated games dictionary with merged ownership information.
+    return games
+
+def write_data_to_csv(player_count_data_dict, csv_filename):
+    with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
+        # Define the field names for the CSV based on the JSON structure.
+        fieldnames = [
+            'Game ID', 'Game Title', 'Type', 'Year', 'Average Rating', 
+            'Number of Voters', 'Weight', 'Weight Votes', 'Owned', 
+            'Number of Players', 'Score Factor', 'Playable', 'Best %', 
+            'Best Votes', 'Recommended %', 'Recommended Votes', 'Not Recommended %', 
+            'Not Recommended Votes', 'Vote Count', 'Player Count Score (unadjusted)', 
+            'Player Count Score'
+        ]
+        
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for game_id, game_info in player_count_data_dict.items():
+            base_info = {
+                'Game ID': game_id,
+                'Game Title': game_info['Game Title'],
+                'Type': game_info['Type'],
+                'Year': game_info['Year'],
+                'Average Rating': game_info['Average Rating'],
+                'Number of Voters': game_info['Number of Voters'],
+                'Weight': game_info['Weight'],
+                'Weight Votes': game_info['Weight Votes'],
+                'Owned': game_info['Owned'],
+            }
+            
+            for player_count in range(1, len(game_info) - 8):  # Subtract fixed game info fields
+                player_data = game_info[str(player_count)]
+                row = {**base_info, **player_data}
+                writer.writerow(row)
+
+def write_data_to_json(player_count_data_dict, json_filename):
+    """
+    Writes game details, including player count recommendations, to a JSON file.
+
+    This function now directly uses the single dictionary structure where each game's details and
+    its player count recommendations are nested together, streamlining the process of creating the JSON file.
+
+    Args:
+        player_count_data_dict (dict): A single dictionary containing all game details and player count recommendations.
+        json_filename (str): The name of the JSON file to write the data to.
+    """
+    with open(json_filename, 'w', encoding='utf-8') as file:
+        # Directly dump the player_count_data_dict to a JSON file, as it already contains all necessary details.
+        json.dump(player_count_data_dict, file, ensure_ascii=False, indent=4)
+
+
+def add_score_factors(player_count_data_dict):
+        
+    # Initialize the parameters
+    best_vote_parameter = 3 # weighting factor for the best vote
+    recommended_vote_parameter = 2 # weighting factor for the recommended vote
+    not_vote_parameter = -2 # weighting factor for the not recommended vote
+    playable_threshold = 150 # score above which a player count is considered playable
+    rating_weighting_factor = 3 # how heavily to weight the ratings
+    playercount_weighting_factor = 1 # how heavily to weight the player count score
+
+        # Iterate through each game in the dictionary
+    for game_id, player_counts in player_count_data_dict.items():
+        for player_count, vote_info in player_counts.items():
+            if type(vote_info) is dict:  # Ensure we're working with the nested dictionary
+                best_percent = vote_info.get('Best %', 0)
+                recommended_percent = vote_info.get('Recommended %', 0)
+                not_recommended_percent = vote_info.get('Not Recommended %', 0)
+
+                # Calculate the unadjusted player count score
+                player_count_score_unadjusted = round(
+                    best_percent * best_vote_parameter +
+                    recommended_percent * recommended_vote_parameter +
+                    not_recommended_percent * not_vote_parameter, 1
+                )
+
+                # Append the calculated score to the vote_info dictionary
+                vote_info['Player Count Score (unadjusted)'] = player_count_score_unadjusted
+
+    # After calculating the unadjusted scores for all player counts
+
+    # Find the min and max unadjusted scores across all games and player counts
+    all_unadjusted_scores = []
+    for game_id, player_counts in player_count_data_dict.items():
+        for count, data in player_counts.items():
+            if isinstance(data, dict):
+                all_unadjusted_scores.append(data['Player Count Score (unadjusted)'])
+
+    min_score = min(all_unadjusted_scores)
+    max_score = max(all_unadjusted_scores)
+
+    # Normalize the unadjusted player count scores and update other values
+    for game_id, player_counts in player_count_data_dict.items():
+        for player_count, vote_info in player_counts.items():
+            if isinstance(vote_info, dict):
+                unadjusted_score = vote_info['Player Count Score (unadjusted)']
+                # Normalize score
+                normalized_score = 10 * (unadjusted_score - min_score) / (max_score - min_score) if max_score > min_score else 0
+                vote_info['Player Count Score'] = round(normalized_score, 2)
+                
+                # Determine Playability
+                vote_info['Playable'] = "Playable" if unadjusted_score >= playable_threshold else "Not Playable"
+                
+                average_rating = player_count_data_dict[game_id].get('Average Rating', 0)
+                score_factor = round(((average_rating * rating_weighting_factor) + (normalized_score * playercount_weighting_factor)) / (rating_weighting_factor + playercount_weighting_factor), 3)
+                vote_info['Score Factor'] = score_factor
+
+    return player_count_data_dict
 
 def main(username, games_to_fetch, output_filename, batch_size, output_type):
     """
@@ -480,7 +487,7 @@ def main(username, games_to_fetch, output_filename, batch_size, output_type):
 
     # Update game data with additional information and player count data.
     with tqdm(total=len(games), smoothing=0, desc="Updating game data") as progress_bar:
-        games, player_count_data_dict = update_boardgame_data(games, batch_size=batch_size, progress_bar=progress_bar)
+        player_count_data_dict = update_boardgame_data(games, batch_size=batch_size, progress_bar=progress_bar)
 
     print("\n")
 
@@ -494,9 +501,9 @@ def main(username, games_to_fetch, output_filename, batch_size, output_type):
         output_filename_with_extension = output_filename
 
     if output_type == 'csv':
-        write_merged_data_to_csv(games, player_count_data_dict, output_filename_with_extension)
+        write_data_to_csv(player_count_data_dict, output_filename_with_extension)
     elif output_type == 'json':
-        write_merged_data_to_json(games, player_count_data_dict, output_filename_with_extension)
+        write_data_to_json(player_count_data_dict, output_filename_with_extension)
 
     print(f"Success! Data written in {output_type.upper()} format to {output_filename_with_extension}.")
 
