@@ -9,52 +9,10 @@ def load_csv_data(file_name):
     with open(file_name, newline='', encoding='utf-8') as csvfile:
         reader = csv.reader(csvfile)
         headers = next(reader)
-        headers.extend(["Player Count Score (unadjusted)", "Player Count Score", "Playable", "Score Factor"])
         data.append(headers)
         
-        # Initialize the parameters
-        best_vote_parameter = 3
-        recommended_vote_parameter = 2
-        not_vote_parameter = -2
-        playable_threshold = 150
-        rating_weighting_factor = 3
-        playercount_weighting_factor = 1
-
         for row in reader:
-            # Calculate the "Player Count Score (unadjusted)"
-            best_percent = float(row[headers.index("Best %")])
-            recommended_percent = float(row[headers.index("Recommended %")])
-            not_recommended_percent = float(row[headers.index("Not Recommended %")])
-
-            player_count_score_unadjusted = round(
-                best_percent * best_vote_parameter
-                + recommended_percent * recommended_vote_parameter
-                + not_recommended_percent * not_vote_parameter,1
-            )
-
-            # Append the calculated values as placeholders
-            row.extend([player_count_score_unadjusted, 0, "", 0])
             data.append(row)
-
-    # Calculate the minimum and maximum "Player Count Score (unadjusted)"
-    min_score = min(float(row[headers.index("Player Count Score (unadjusted)")]) for row in data[1:])
-    max_score = max(float(row[headers.index("Player Count Score (unadjusted)")]) for row in data[1:])
-
-    # Update the "Player Count Score", "Playable", and "Score Factor" values
-    for row in data[1:]:
-        unadjusted_score = float(row[headers.index("Player Count Score (unadjusted)")])
-
-        # Normalize the "Player Count Score"
-        player_count_score = (unadjusted_score - min_score) / (max_score - min_score) * 10
-        row[headers.index("Player Count Score")] = "{:.2f}".format(player_count_score)
-
-        # Calculate the "Playable" value based on the threshold
-        row[headers.index("Playable")] = "Playable" if unadjusted_score >= playable_threshold else "Not Playable"
-
-        # Calculate the "Score\nFactor" value
-        average_rating = float(row[headers.index("Average Rating")])
-        score_factor = round(((average_rating * rating_weighting_factor) + (player_count_score * playercount_weighting_factor)) / (rating_weighting_factor + playercount_weighting_factor), 3)
-        row[headers.index("Score Factor")] = "{:.3f}".format(score_factor)
 
     return data
 
@@ -230,7 +188,7 @@ class MainWindow(QMainWindow):
         self.model.setColumnCount(len(data[0]))
         
         # Set the horizontal headers        
-        headers = ["Score\nFactor","Game Title", "Game\nID", "Year", "Average\nRating", "Number\nof\n Voters", "Weight", "Weight\nVotes", "Owned", "Type", "Player\nCount", "Best\n%", "Best\nVotes", "Rec.\n%", "Rec.\nVotes", "Not\n%", "Not\nVotes", "Total\nVotes", "Player\nCount\nScore\n(unadjusted)", "Player\nCount\nScore", "Playable"]
+        headers = ["Score\nFactor", "Game ID", "Game Title", "Type", "Year", "Average\nRating", "Number\nof\n Voters", "Weight", "Weight\nVotes", "Owned", "Player\nCount", "Best\n%", "Best\nVotes", "Rec.\n%", "Rec.\nVotes", "Not\n%", "Not\nVotes", "Total\nVotes", "Player\nCount\nScore\n(unadjusted)", "Player\nCount\nScore", "Playable"]
         
         self.model.setHorizontalHeaderLabels(headers)
 
