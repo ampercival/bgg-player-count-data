@@ -230,7 +230,7 @@ class MainWindow(QMainWindow):
         self.model.setColumnCount(len(data[0]))
         
         # Set the horizontal headers        
-        headers = ["Score\nFactor","Game Title", "Game\nID", "Year", "Average\nRating", "Number\nof\n Voters", "Weight", "Weight\nVotes", "Owned", "Type", "Player\nCount", "Best\n%", "Best\nVotes", "Rec.\n%", "Rec.\nVotes", "Not\n%", "Not\nVotes", "Total\nVotes", "Player\nCount\nScore\n(unadjusted)", "Player\nCount\nScore", "Playable"]
+        headers = ["Score\nFactor","Game Title", "Game\nID", "Year", "BGG Rank", "Average\nRating", "Number\nof\n Voters", "Weight", "Weight\nVotes", "Owned", "Type", "Player\nCount", "Best\n%", "Best\nVotes", "Rec.\n%", "Rec.\nVotes", "Not\n%", "Not\nVotes", "Total\nVotes", "Player\nCount\nScore\n(unadjusted)", "Player\nCount\nScore", "Playable"]
         
         self.model.setHorizontalHeaderLabels(headers)
 
@@ -248,7 +248,12 @@ class MainWindow(QMainWindow):
         # Populate the table view
         for row in range(1, len(data)):
             for col in range(len(data[row])):
-                item = QStandardItem(str(data[row][col]))
+                cell_value = str(data[row][col])
+                # Check if the value is 'inf' and replace with empty string for display
+                if cell_value == float('inf'):
+                    item = QStandardItem("")
+                else:
+                    item = QStandardItem(cell_value)
 
                 # Check if the value in the first row is numeric
                 try:
@@ -264,6 +269,8 @@ class MainWindow(QMainWindow):
                     except ValueError:
                         number = int(data[row][col])
                     item.setData(number, Qt.DisplayRole)
+                else:
+                    item.setData(cell_value, Qt.DisplayRole)
 
                 self.model.setItem(row - 1, col, item)
 
@@ -283,7 +290,6 @@ class MainWindow(QMainWindow):
         # Hide the "Player Count Score (unadjusted)" column
         header = self.table_view.horizontalHeader()
         header.hideSection(player_count_score_unadjusted_index)
-
 
 
     def filter_game_title(self, text):

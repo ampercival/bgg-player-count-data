@@ -22,9 +22,9 @@ def get_args():
     
     # Step 3: Adding command-line arguments
     parser.add_argument("-u", "--username", default="Percy0715", help="BoardGameGeek username (default: Percy0715)")
-    parser.add_argument("-f", "--fetch", type=int, default=1000, help="Number of games to fetch (default: 1000)")
+    parser.add_argument("-f", "--fetch", type=int, default=5000, help="Number of games to fetch (default: 5000)")
     parser.add_argument("-o", "--output", default="PlayerCountDataList", help="Output filename (default: PlayerCountDataList.csv)")
-    parser.add_argument("-b", "--batch_size", type=int, default=500, help="Batch size for processing games in batches from API call (default: 500)")    
+    parser.add_argument("-b", "--batch_size", type=int, default=100, help="Batch size for processing games in batches from API call (default: 100)")    
     parser.add_argument("-t", "--output_type", choices=['csv', 'json'], default='csv', help="Output format: 'csv' or 'json' (default: csv)")
     
     return parser.parse_args()
@@ -59,11 +59,6 @@ def fetch_games(session, username, page_number):
     """
     Fetches game data from BoardGameGeek based on a specified username and page number.
 
-    This function uses a session object to make a GET request to the BoardGameGeek website,
-    retrieving a list of games associated with a given username. The function parses the HTML
-    response to extract relevant game details such as title, ID, type, average rating, and number
-    of voters. It supports pagination through the page_number argument.
-
     Args:
         session (requests.Session): The session object used for making HTTP requests.
         username (str): The BoardGameGeek username whose game list is to be fetched.
@@ -72,35 +67,65 @@ def fetch_games(session, username, page_number):
     Returns:
         dict: A dictionary containing game IDs as keys and dictionaries with game details as values.
     """
-    # Construct the URL for fetching games, including the username and page number for pagination.
-    url = f"https://boardgamegeek.com/search/boardgame/page/{page_number}?sort=avgrating&advsearch=1&q=&include%5Bdesignerid%5D=&include%5Bpublisherid%5D=&geekitemname=&range%5Byearpublished%5D%5Bmin%5D=&range%5Byearpublished%5D%5Bmax%5D=&range%5Bminage%5D%5Bmax%5D=&range%5Bnumvoters%5D%5Bmin%5D=100&range%5Bnumweights%5D%5Bmin%5D=&range%5Bminplayers%5D%5Bmax%5D=&range%5Bmaxplayers%5D%5Bmin%5D=&range%5Bleastplaytime%5D%5Bmin%5D=&range%5Bplaytime%5D%5Bmax%5D=&floatrange%5Bavgrating%5D%5Bmin%5D=&floatrange%5Bavgrating%5D%5Bmax%5D=&floatrange%5Bavgweight%5D%5Bmin%5D=&floatrange%5Bavgweight%5D%5Bmax%5D=&colfiltertype=&searchuser={username}&playerrangetype=normal&B1=Submit&sortdir=desc"
-    response = session.get(url)  # Make the GET request using the session object.
-    soup = BeautifulSoup(response.text, 'html.parser')  # Parse the HTML response.
-    table = soup.find('table', {'class': 'collection_table'})  # Locate the table containing game data.
+    url = f"https://boardgamegeek.com/search/boardgame/page/{page_number}?sort=avgrating&advsearch=1&q=&include%5Bdesignerid%5D=&include%5Bpublisherid%5D=&geekitemname=&range%5Byearpublished%5D%5Bmin%5D=&range%5Byearpublished%5D%5Bmax%5D=&range%5Bminage%5D%5Bmax%5D=&range%5Bnumvoters%5D%5Bmin%5D=50&range%5Bnumweights%5D%5Bmin%5D=&range%5Bminplayers%5D%5Bmax%5D=&range%5Bmaxplayers%5D%5Bmin%5D=&range%5Bleastplaytime%5D%5Bmin%5D=&range%5Bplaytime%5D%5Bmax%5D=&floatrange%5Bavgrating%5D%5Bmin%5D=&floatrange%5Bavgrating%5D%5Bmax%5D=&floatrange%5Bavgweight%5D%5Bmin%5D=&floatrange%5Bavgweight%5D%5Bmax%5D=&colfiltertype=&searchuser=&playerrangetype=normal&B1=Submit&sortdir=desc"
+    
+    retries = 0
+    max_retries = 5
 
-    games = {}  # Initialize an empty dictionary to store game details.
+    while retries < max_retries:
+        try:
+            response = session.get(url)
+            response.raise_for_status()  # Raise an exception for HTTP errors
+            break
+        except requests.exceptions.HTTPError as e:
+            if response.status_code == 429:  # Too many requests
+                retries += 1
+                wait_time = 10 * retries
+                print(f"Rate limit hit. Retrying in {wait_time} seconds... ({retries})")
+                time.sleep(wait_time)  # Exponential backoff
+            else:
+                retries += 1
+                print(f"Error {response.status_code}. Retrying... ({retries})")
+                time.sleep(5)
+        except requests.exceptions.ChunkedEncodingError:
+            retries += 1
+            print(f"ChunkedEncodingError encountered. Retrying... ({retries})")
+            time.sleep(5)
+        except requests.exceptions.RequestException as e:
+            retries += 1
+            print(f"RequestException encountered: {e}. Retrying... ({retries})")
+            time.sleep(5)
+    
+    if response.status_code != 200:
+        print(f"Failed to fetch page {page_number} after {max_retries} retries. Skipping.")
+        return {}
 
-    # Iterate over each row in the table to extract game details.
+    soup = BeautifulSoup(response.text, 'html.parser')
+    table = soup.find('table', {'class': 'collection_table'})
+
+    if table is None:
+        print(f"No collection table found on page {page_number}")
+        return {}
+
+    games = {}
+
     for row in table.find_all('tr', {'id': re.compile(r'^row_')}):
         game_title_element = row.find_all('td')[2]
-        game_title = game_title_element.a.text.strip()  # Extract the game title.
-        game_id = re.search(r'/boardgame(?:expansion)?/(\d+)', game_title_element.a['href']).group(1)  # Extract the game ID.
+        game_title = game_title_element.a.text.strip()
+        game_id = re.search(r'/boardgame(?:expansion)?/(\d+)', game_title_element.a['href']).group(1)
 
-        # Determine if the game is a base game or an expansion.
         if "boardgameexpansion" in game_title_element.a['href']:
             game_type = "Expansion"
         else:
             game_type = "Base Game"
 
-        avg_rating = float(row.find_all('td')[4].text.strip())  # Extract the average rating.
-        num_voters = int(row.find_all('td')[5].text.strip())  # Extract the number of voters.
+        avg_rating = float(row.find_all('td')[4].text.strip())
+        num_voters = int(row.find_all('td')[5].text.strip())
 
-        # Initialize variables for game weight and ownership status; these could be updated later.
         weight = None
         weight_votes = None
         owned = 'Not Owned'
 
-        # Store the extracted game details in the games dictionary using the game ID as the key.
         games[game_id] = {
             'Game Title': game_title,
             'Type': game_type,
@@ -111,8 +136,9 @@ def fetch_games(session, username, page_number):
             'Weight Votes': weight_votes,
             'Owned': owned
         }
-            
-    return games  # Return the dictionary containing all the fetched game details.
+        
+    time.sleep(1)  # Add a 1-second delay between requests
+    return games
 
 def fetch_games_owned_api(session, username):
     """
@@ -247,6 +273,7 @@ def write_merged_data_to_csv(games, player_count_data_dict, csv_filename):
                     'Game Title': games[game_id]['Game Title'],
                     'Game ID': game_id,
                     'Year': games[game_id].get('Year', 'N/A'),  # Use 'N/A' if 'Year' is not available.
+                    'BGG Rank': games[game_id].get('BGG Rank'),  # Use 'N/A' if 'BGG Rank' is not available.
                     'Average Rating': games[game_id]['Average Rating'],
                     'Number of Voters': games[game_id]['Number of Voters'],
                     'Weight': games[game_id].get('Weight', 'N/A'),  # Use 'N/A' if 'Weight' is not available.
@@ -298,6 +325,7 @@ def write_merged_data_to_json(games, player_count_data_dict, json_filename):
                 'Game Title': games[game_id]['Game Title'],
                 'Game ID': game_id,
                 'Year': games[game_id].get('Year', 'N/A'),
+                'BGG Rank': games[game_id].get('BGG Rank', 'N/A'),
                 'Average Rating': games[game_id]['Average Rating'],
                 'Number of Voters': games[game_id]['Number of Voters'],
                 'Weight': games[game_id].get('Weight', 'N/A'),
@@ -330,15 +358,18 @@ def write_merged_data_to_json(games, player_count_data_dict, json_filename):
     with open(json_filename, 'w', encoding='utf-8') as file:
         json.dump(data_to_write, file, ensure_ascii=False, indent=4)
 
+import requests
+from bs4 import BeautifulSoup
+import time
 
 def update_boardgame_data(games, batch_size=100, progress_bar=None):
     """
     Updates the games dictionary with additional board game data from the BoardGameGeek API.
 
     This function fetches detailed game data in batches, including publication year, weight,
-    weight votes, and player count recommendations. It updates the games dictionary with this
-    new information for each game. The function handles API requests in batches to manage
-    request volume and incorporates a progress bar for visual progress tracking.
+    weight votes, BGG Rank, and player count recommendations. It updates the games dictionary
+    with this new information for each game. The function handles API requests in batches to
+    manage request volume and incorporates a progress bar for visual progress tracking.
 
     Args:
         games (dict): The dictionary of games to be updated with additional data.
@@ -359,23 +390,39 @@ def update_boardgame_data(games, batch_size=100, progress_bar=None):
         game_ids_param = ",".join(map(str, batch_ids))  # Convert batch IDs to a comma-separated string.
         url = f"https://boardgamegeek.com/xmlapi2/thing?id={game_ids_param}&stats=1"  # Construct the API request URL.
 
+        print(f"Requesting URL: {url}")  # Print the URL to the console
+
         retries = 0  # Initialize a retry counter.
-        while True:
-            response = requests.get(url)  # Send the API request.
-            time.sleep(1.5)  # Pause to respect the API's rate limiting.
-
-            if response.status_code != 200:  # Check for a successful response.
+        while retries < 5:  # Retry up to 5 times
+            try:
+                response = requests.get(url)
+                response.raise_for_status()  # Raise an exception for HTTP errors
+                break
+            except requests.exceptions.HTTPError as e:
+                if response.status_code == 429:  # Too many requests
+                    retries += 1
+                    wait_time = 10 * retries
+                    print(f"Rate limit hit. Retrying in {wait_time} seconds... ({retries})")
+                    time.sleep(wait_time)  # Exponential backoff
+                else:
+                    retries += 1
+                    print(f"Error {response.status_code}. Retrying... ({retries})")
+                    time.sleep(5)
+            except requests.exceptions.ChunkedEncodingError:
                 retries += 1
-                print(f"Error {response.status_code}. Retrying... ({retries})")
-                if retries >= 50:  # Abort after 50 unsuccessful retries.
-                    raise Exception("50 retries reached. Stopping.")
-                time.sleep(10)
-                continue
+                print(f"ChunkedEncodingError encountered. Retrying... ({retries})")
+                time.sleep(5)
+            except requests.exceptions.RequestException as e:
+                retries += 1
+                print(f"RequestException encountered: {e}. Retrying... ({retries})")
+                time.sleep(5)
 
-            break  # Exit the retry loop on a successful response.
+        if response.status_code != 200:
+            print(f"Failed to fetch game data for batch starting at index {i}. Skipping this batch.")
+            continue
 
-        soup = BeautifulSoup(response.text, "xml")  # Parse the XML response.
-        
+        soup = BeautifulSoup(response.content, "xml")  # Parse the XML response
+
         # Iterate over each game item in the XML to extract and update game details.
         for item in soup.find_all("item"):
             game_id = item["id"]
@@ -386,6 +433,18 @@ def update_boardgame_data(games, batch_size=100, progress_bar=None):
             average_weight = round(float(item.statistics.ratings.averageweight["value"]), 2)
             games[game_id]['Weight'] = average_weight  # Update the game's weight.
             games[game_id]['Weight Votes'] = num_weights  # Update the number of weight votes.
+
+            # Extract the BGG Rank
+            rank_element = item.find("rank", {"name": "boardgame"})
+            if rank_element:
+                bgg_rank = rank_element["value"]
+            else:
+                bgg_rank = float('inf')  # Set to infinity if not ranked
+            
+            if bgg_rank == "Not Ranked":
+                bgg_rank = float('inf')  # Set to infinity if not ranked
+            
+            games[game_id]['BGG Rank'] = bgg_rank  # Update the game's BGG Rank.
 
             # Extract and process player count recommendation data.
             suggested_numplayers = item.find("poll", {"name": "suggested_numplayers"})
@@ -426,7 +485,7 @@ def update_boardgame_data(games, batch_size=100, progress_bar=None):
             if progress_bar:
                 progress_bar.update(1)  # Update the progress bar if provided.
 
-    return games, player_count_data_dict  # Return the updated games dictionary and the new player count data dictionary.
+    return games, player_count_data_dict  # Return the updated games dictionary and the new player count data dictionary
 
 def main(username, games_to_fetch, output_filename, batch_size, output_type):
     """
